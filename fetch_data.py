@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -----------------------------
-# NIFTY Option Chain Updater (KiteConnect)
+# NIFTY Option Chain Updater (KiteConnect1)
 # -----------------------------
 import os
 import sys
