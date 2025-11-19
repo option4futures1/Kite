@@ -174,6 +174,7 @@ for expiry, sheet_name in EXPIRIES:
 
         print(f"✅ Logged {len(rows)} rows in {sheet_name}")
 
-    except Exception as e:
-    print(f"❌ Error processing {expiry}: {e}")
-    traceback.print_exc()
+        except Exception as e:
+        print(f"❌ Error processing {expiry}: {e}")
+        import traceback
+        traceback.print_exc()
