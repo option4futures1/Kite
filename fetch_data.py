@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-# -----------------------------
-# NIFTY Option Chain Updater (KiteConnect1)
-# -----------------------------
 import os
 import sys
 import pytz
 import gspread
+import traceback
 from oauth2client.service_account import ServiceAccountCredentials
 from kiteconnect import KiteConnect
 from datetime import datetime, time
-
 
 # -----------------------------
 # 0. CONFIG
@@ -19,7 +16,6 @@ GOOGLE_CREDS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "service_account.json")
 API_KEY = os.getenv("API_KEY")
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 
-# Define expiries you want to track
 EXPIRIES = [
     ("2025-11-25", "Expiry1"),
     ("2025-12-02", "Expiry2"),
@@ -27,10 +23,8 @@ EXPIRIES = [
     ("2025-12-16", "Expiry4"),
 ]
 
-
-
 # -----------------------------
-# 1. Market Open Check (IST)
+# 1. Market Open Check
 # -----------------------------
 ist = pytz.timezone("Asia/Kolkata")
 now = datetime.now(ist)
@@ -47,7 +41,7 @@ print(f"✅ Market is open. Time: {current_time}")
 # 2. Setup KiteConnect
 # -----------------------------
 if not API_KEY or not ACCESS_TOKEN:
-    raise Exception("❌ Missing API_KEY or ACCESS_TOKEN in environment!")
+    raise Exception("❌ Missing API_KEY or ACCESS_TOKEN!")
 
 kite = KiteConnect(api_key=API_KEY)
 kite.set_access_token(ACCESS_TOKEN)
@@ -58,33 +52,38 @@ kite.set_access_token(ACCESS_TOKEN)
 if not SHEET_ID or not os.path.exists(GOOGLE_CREDS_PATH):
     raise Exception("❌ Missing Google Sheet ID or credentials file!")
 
-scope = ["https://spreadsheets.google.com/feeds",
-         "https://www.googleapis.com/auth/drive"]
+scope = [
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/drive"
+]
 creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_CREDS_PATH, scope)
 client = gspread.authorize(creds)
 
 # -----------------------------
-# 4. Process each Expiry
+# 4. Process each expiry
 # -----------------------------
 for expiry, sheet_name in EXPIRIES:
     print(f"\n📌 Processing expiry {expiry} → Sheet {sheet_name}")
 
     try:
-        # Get target sheet
+        # Get sheet
         try:
             sheet = client.open_by_key(SHEET_ID).worksheet(sheet_name)
         except gspread.exceptions.WorksheetNotFound:
-            sheet = client.open_by_key(SHEET_ID).add_worksheet(title=sheet_name, rows=1000, cols=20)
+            sheet = client.open_by_key(SHEET_ID).add_worksheet(
+                title=sheet_name, rows=1000, cols=20
+            )
 
-        # Load existing data for OI change
+        # Load previous OI
         existing_values = sheet.get_all_values()
         prev_oi_dict = {}
         if existing_values:
             headers = existing_values[0]
-            if "Strike" in headers and "Call OI" in headers and "Put OI" in headers:
+            if "Strike" in headers:
                 strike_col = headers.index("Strike")
                 call_oi_col = headers.index("Call OI")
                 put_oi_col = headers.index("Put OI")
+
                 for row in existing_values[1:]:
                     try:
                         strike = float(row[strike_col])
@@ -92,21 +91,23 @@ for expiry, sheet_name in EXPIRIES:
                         put_oi = int(row[put_oi_col]) if row[put_oi_col] else 0
                         prev_oi_dict[strike] = {"call": call_oi, "put": put_oi}
                     except:
-                        continue
+                        pass
 
-        # Fetch option chain instruments for this expiry
+        # Fetch NIFTY instruments
         instruments = kite.instruments("NFO")
-        nifty_options = [i for i in instruments if i["name"] == "NIFTY" and i["expiry"].strftime("%Y-%m-%d") == expiry]
-        print(f"✅ Found {len(nifty_options)} NIFTY contracts for {expiry}")
+        nifty_options = [
+            i for i in instruments
+            if i["name"] == "NIFTY" and i["expiry"].strftime("%Y-%m-%d") == expiry
+        ]
+        print(f"✅ Found {len(nifty_options)} contracts")
 
         # Build option chain
-                # Build option chain
         option_chain = {}
         for inst in nifty_options:
             try:
                 print("Fetching:", inst["tradingsymbol"], inst["instrument_token"])
                 quote = kite.quote(inst["instrument_token"])
-                print("Received quote:", quote)
+                print("Received:", quote)
 
                 ltp = quote[str(inst["instrument_token"])]["last_price"]
                 oi = quote[str(inst["instrument_token"])].get("oi", 0)
@@ -121,24 +122,19 @@ for expiry, sheet_name in EXPIRIES:
                 if typ == "CE":
                     prev_oi = prev_oi_dict.get(strike, {}).get("call", 0)
                     option_chain[strike]["call"] = {
-                        "ltp": ltp,
-                        "oi": oi,
-                        "chg_oi": oi - prev_oi,
-                        "vol": vol
+                        "ltp": ltp, "oi": oi,
+                        "chg_oi": oi - prev_oi, "vol": vol
                     }
-                elif typ == "PE":
+                else:
                     prev_oi = prev_oi_dict.get(strike, {}).get("put", 0)
                     option_chain[strike]["put"] = {
-                        "ltp": ltp,
-                        "oi": oi,
-                        "chg_oi": oi - prev_oi,
-                        "vol": vol
+                        "ltp": ltp, "oi": oi,
+                        "chg_oi": oi - prev_oi, "vol": vol
                     }
 
             except Exception as e:
                 print(f"⚠️ Error fetching {inst['tradingsymbol']}: {e}")
                 traceback.print_exc()
-
 
         # Prepare rows
         rows = []
@@ -156,7 +152,7 @@ for expiry, sheet_name in EXPIRIES:
                 put.get("oi", 0),
                 put.get("chg_oi", 0),
                 put.get("vol", 0),
-                ""  # VWAP placeholder
+                ""
             ])
 
         # Write to sheet
@@ -172,9 +168,8 @@ for expiry, sheet_name in EXPIRIES:
         if rows:
             sheet.insert_rows(rows, 2)
 
-        print(f"✅ Logged {len(rows)} rows in {sheet_name}")
+        print(f"✅ Logged {len(rows)} rows")
 
-        except Exception as e:
+    except Exception as e:
         print(f"❌ Error processing {expiry}: {e}")
-        import traceback
         traceback.print_exc()
