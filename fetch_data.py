@@ -62,11 +62,16 @@ client = gspread.authorize(creds)
 # -----------------------------
 # 4. Process each expiry
 # -----------------------------
+total_expiries = len(EXPIRIES)
+successful = 0
+failed = 0
+
 for expiry, sheet_name in EXPIRIES:
+    start_time = datetime.now()
     print(f"\n📌 Processing expiry {expiry} → Sheet {sheet_name}")
 
     try:
-        # Get sheet
+        # Get sheet (open or create)
         try:
             sheet = client.open_by_key(SHEET_ID).worksheet(sheet_name)
         except gspread.exceptions.WorksheetNotFound:
@@ -79,7 +84,7 @@ for expiry, sheet_name in EXPIRIES:
         prev_oi_dict = {}
         if existing_values:
             headers = existing_values[0]
-            if "Strike" in headers:
+            if "Strike" in headers and "Call OI" in headers and "Put OI" in headers:
                 strike_col = headers.index("Strike")
                 call_oi_col = headers.index("Call OI")
                 put_oi_col = headers.index("Put OI")
@@ -97,17 +102,22 @@ for expiry, sheet_name in EXPIRIES:
         instruments = kite.instruments("NFO")
         nifty_options = [
             i for i in instruments
-            if i["name"] == "NIFTY" and i["expiry"].strftime("%Y-%m-%d") == expiry
+            if i.get("name") == "NIFTY" and i.get("expiry").strftime("%Y-%m-%d") == expiry
         ]
-        print(f"✅ Found {len(nifty_options)} contracts")
+        print(f"✅ Found {len(nifty_options)} contracts for {expiry}")
 
         # Build option chain
         option_chain = {}
+        fetch_count = 0
+        fetch_errors = 0
+
         for inst in nifty_options:
             try:
-                print("Fetching:", inst["tradingsymbol"], inst["instrument_token"])
+                fetch_count += 1
+                # Minimal log per instrument (only token + symbol)
+                # print("Fetching:", inst["tradingsymbol"], inst["instrument_token"])
+
                 quote = kite.quote(inst["instrument_token"])
-                print("Received:", quote)
 
                 ltp = quote[str(inst["instrument_token"])]["last_price"]
                 oi = quote[str(inst["instrument_token"])].get("oi", 0)
@@ -125,7 +135,7 @@ for expiry, sheet_name in EXPIRIES:
                         "ltp": ltp, "oi": oi,
                         "chg_oi": oi - prev_oi, "vol": vol
                     }
-                else:
+                elif typ == "PE":
                     prev_oi = prev_oi_dict.get(strike, {}).get("put", 0)
                     option_chain[strike]["put"] = {
                         "ltp": ltp, "oi": oi,
@@ -133,7 +143,9 @@ for expiry, sheet_name in EXPIRIES:
                     }
 
             except Exception as e:
-                print(f"⚠️ Error fetching {inst['tradingsymbol']}: {e}")
+                fetch_errors += 1
+                # Only print brief warning + traceback for troubleshooting
+                print(f"⚠️ Error fetching {inst.get('tradingsymbol')} (token {inst.get('instrument_token')}): {e}")
                 traceback.print_exc()
 
         # Prepare rows
@@ -168,8 +180,21 @@ for expiry, sheet_name in EXPIRIES:
         if rows:
             sheet.insert_rows(rows, 2)
 
-        print(f"✅ Logged {len(rows)} rows")
+        elapsed = (datetime.now() - start_time).total_seconds()
+        print(f"✅ Logged {len(rows)} rows in {sheet_name} (fetched {fetch_count}, errors {fetch_errors}) in {elapsed:.1f}s")
+        print(f"✅ Data fetched & updated successfully for expiry {expiry}")
+
+        successful += 1
 
     except Exception as e:
+        failed += 1
         print(f"❌ Error processing {expiry}: {e}")
         traceback.print_exc()
+
+# Final summary
+print("\n--- Summary ---")
+print(f"Expiries processed: {total_expiries}, successful: {successful}, failed: {failed}")
+if failed == 0:
+    print("🎉 All expiries updated successfully.")
+else:
+    print("⚠️ Some expiries failed. Check the logs above for details.")
