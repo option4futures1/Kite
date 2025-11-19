@@ -100,10 +100,14 @@ for expiry, sheet_name in EXPIRIES:
         print(f"✅ Found {len(nifty_options)} NIFTY contracts for {expiry}")
 
         # Build option chain
+                # Build option chain
         option_chain = {}
         for inst in nifty_options:
             try:
+                print("Fetching:", inst["tradingsymbol"], inst["instrument_token"])
                 quote = kite.quote(inst["instrument_token"])
+                print("Received quote:", quote)
+
                 ltp = quote[str(inst["instrument_token"])]["last_price"]
                 oi = quote[str(inst["instrument_token"])].get("oi", 0)
                 vol = quote[str(inst["instrument_token"])].get("volume", 0)
@@ -130,8 +134,11 @@ for expiry, sheet_name in EXPIRIES:
                         "chg_oi": oi - prev_oi,
                         "vol": vol
                     }
+
             except Exception as e:
                 print(f"⚠️ Error fetching {inst['tradingsymbol']}: {e}")
+                traceback.print_exc()
+
 
         # Prepare rows
         rows = []
