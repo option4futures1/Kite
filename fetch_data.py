@@ -71,7 +71,7 @@ for expiry, sheet_name in EXPIRIES:
     print(f"\n📌 Processing expiry {expiry} → Sheet {sheet_name}")
 
     try:
-        # Get sheet (open or create)
+        # Get sheet
         try:
             sheet = client.open_by_key(SHEET_ID).worksheet(sheet_name)
         except gspread.exceptions.WorksheetNotFound:
@@ -114,14 +114,13 @@ for expiry, sheet_name in EXPIRIES:
         for inst in nifty_options:
             try:
                 fetch_count += 1
-                # Minimal log per instrument (only token + symbol)
-                # print("Fetching:", inst["tradingsymbol"], inst["instrument_token"])
 
                 quote = kite.quote(inst["instrument_token"])
+                q = quote[str(inst["instrument_token"])]
 
-                ltp = quote[str(inst["instrument_token"])]["last_price"]
-                oi = quote[str(inst["instrument_token"])].get("oi", 0)
-                vol = quote[str(inst["instrument_token"])].get("volume", 0)
+                ltp = q["last_price"]
+                oi = q.get("oi", 0)
+                vol = q.get("volume", 0)
 
                 strike = inst["strike"]
                 typ = inst["instrument_type"]
@@ -144,7 +143,6 @@ for expiry, sheet_name in EXPIRIES:
 
             except Exception as e:
                 fetch_errors += 1
-                # Only print brief warning + traceback for troubleshooting
                 print(f"⚠️ Error fetching {inst.get('tradingsymbol')} (token {inst.get('instrument_token')}): {e}")
                 traceback.print_exc()
 
@@ -167,7 +165,9 @@ for expiry, sheet_name in EXPIRIES:
                 ""
             ])
 
-        # Write to sheet
+        # ----------------------------------------
+        # ✅ WRITE — NO NEW ROWS WILL BE CREATED
+        # ----------------------------------------
         headers_row = [
             "Call LTP", "Call OI", "Call Chg OI", "Call Vol",
             "Strike", "Expiry",
@@ -175,14 +175,20 @@ for expiry, sheet_name in EXPIRIES:
             "VWAP"
         ]
 
-        sheet.clear()
-        sheet.insert_row(headers_row, 1)
+        # Clear only content (keep row structure)
+        sheet.batch_clear(["A2:Z1000"])
+
+        # Update header
+        sheet.update("A1:K1", [headers_row])
+
+        # Update data rows in place
         if rows:
-            sheet.insert_rows(rows, 2)
+            sheet.update(f"A2:K{len(rows)+1}", rows)
+
+        # -----------------------------------------
 
         elapsed = (datetime.now() - start_time).total_seconds()
         print(f"✅ Logged {len(rows)} rows in {sheet_name} (fetched {fetch_count}, errors {fetch_errors}) in {elapsed:.1f}s")
-        print(f"✅ Data fetched & updated successfully for expiry {expiry}")
 
         successful += 1
 
@@ -197,4 +203,4 @@ print(f"Expiries processed: {total_expiries}, successful: {successful}, failed: 
 if failed == 0:
     print("🎉 All expiries updated successfully.")
 else:
-    print("⚠️ Some expiries failed. Check the logs above for details.")
+    print("⚠️ Some expiries failed. Check logs above.")
