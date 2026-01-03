@@ -17,10 +17,10 @@ API_KEY = os.getenv("API_KEY")
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 
 EXPIRIES = [
-    ("2025-12-30", "Expiry1"),
-    ("2026-01-06", "Expiry2"),
-    ("2025-01-13", "Expiry3"),
-    ("2026-01-20", "Expiry4"),
+    ("2026-01-06", "Expiry1"),
+    ("2026-01-13", "Expiry2"),
+    ("2025-01-20", "Expiry3"),
+    ("2026-01-27", "Expiry4"),
 ]
 
 # -----------------------------
