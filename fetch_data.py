@@ -18,7 +18,7 @@ ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 
 EXPIRIES = [
     ("2026-03-02", "Expiry1"),
-    ("2026-03-100", "Expiry2"),
+    ("2026-03-10", "Expiry2"),
     ("2025-03-17", "Expiry3"),
     ("2026-03-24", "Expiry4"),
 ]
